@@ -1,6 +1,6 @@
 {
   "name": "Cooking Companion",
-  "description": "Your ultimate kitchen assistant with social login, interactive recipe exploration, shopping list managers, cooking timers, and personalized meal planning.",
+  "description": "Your ultimate kitchen assistant with social login, interactive recipe exploration, an Ingredients Pantry with matched recipes, custom Gemini AI recipe generation, cooking timers, and personalized meal planning.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

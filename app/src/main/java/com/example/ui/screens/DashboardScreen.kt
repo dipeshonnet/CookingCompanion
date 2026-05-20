@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.local.MealPlan
@@ -48,7 +50,7 @@ import com.example.ui.viewmodel.CookingViewModel
 import com.example.ui.theme.*
 
 enum class DashboardTab {
-    DISCOVER, PLAY_RECIPE, MEAL_PLAN, SHOPPING, PROFILE
+    DISCOVER, PLAY_RECIPE, MEAL_PLAN, INGREDIENTS, PROFILE
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,7 +103,7 @@ fun DashboardScreen(
                                 DashboardTab.DISCOVER -> "Discover Recipes"
                                 DashboardTab.PLAY_RECIPE -> "Play Kitchen Studio"
                                 DashboardTab.MEAL_PLAN -> "Weekly Menu"
-                                DashboardTab.SHOPPING -> "Shopping Pantry"
+                                DashboardTab.INGREDIENTS -> "Ingredients Pantry"
                                 DashboardTab.PROFILE -> "Chef Studio"
                             },
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
@@ -160,11 +162,11 @@ fun DashboardScreen(
                         modifier = Modifier.testTag("tab_mealplan")
                     )
                     NavigationBarItem(
-                        selected = currentTab == DashboardTab.SHOPPING,
-                        onClick = { currentTab = DashboardTab.SHOPPING },
-                        icon = { Icon(if (currentTab == DashboardTab.SHOPPING) Icons.Filled.ShoppingBag else Icons.Outlined.ShoppingBag, null) },
-                        label = { Text("Shopping") },
-                        modifier = Modifier.testTag("tab_shopping")
+                        selected = currentTab == DashboardTab.INGREDIENTS,
+                        onClick = { currentTab = DashboardTab.INGREDIENTS },
+                        icon = { Icon(if (currentTab == DashboardTab.INGREDIENTS) Icons.Filled.Kitchen else Icons.Outlined.Kitchen, null) },
+                        label = { Text("Ingredients") },
+                        modifier = Modifier.testTag("tab_ingredients")
                     )
                     NavigationBarItem(
                         selected = currentTab == DashboardTab.PROFILE,
@@ -187,7 +189,7 @@ fun DashboardScreen(
                 DashboardTab.DISCOVER -> DiscoverPanel(viewModel = viewModel, onRecipeClick = { selectedDetailRecipe = it })
                 DashboardTab.PLAY_RECIPE -> PlayRecipePanel(viewModel = viewModel, onSelectRecipeClick = { currentTab = DashboardTab.DISCOVER })
                 DashboardTab.MEAL_PLAN -> MealPlanPanel(viewModel = viewModel, recipesList = recipeList)
-                DashboardTab.SHOPPING -> ShoppingPanel(viewModel = viewModel)
+                DashboardTab.INGREDIENTS -> IngredientsPanel(viewModel = viewModel, onRecipeClick = { selectedDetailRecipe = it })
                 DashboardTab.PROFILE -> ProfilePanel(viewModel = viewModel, recipesList = recipeList)
             }
         }
@@ -857,24 +859,143 @@ fun MealSelectorDialog(
 }
 
 // ==========================================
-// 3. SHOPPING PANTRY PANEL
+// 3. INGREDIENTS PANTRY PANEL
 // ==========================================
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShoppingPanel(viewModel: CookingViewModel) {
+fun IngredientsPanel(
+    viewModel: CookingViewModel,
+    onRecipeClick: (Recipe) -> Unit
+) {
     val itemsList by viewModel.shoppingList.collectAsState()
-    var inputItemName by remember { mutableStateOf("") }
+    val recipesList by viewModel.recipes.collectAsState()
+    val isGenerating by viewModel.isGeneratingRecipe.collectAsState()
+    val generationError by viewModel.recipeGenerationError.collectAsState()
+
+    var inputIngredient by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+
+    // Quick toggles of popular ingredients
+    val popularIngredients = listOf(
+        "Chicken", "Tomato", "Pasta", "Rice", "Eggs", "Cheese", 
+        "Spinach", "Garlic", "Onion", "Milk", "Flour", "Butter"
+    )
+
+    // Helper map of popular ingredients to emojis
+    val ingredientEmojis = mapOf(
+        "Chicken" to "🍗 Chicken",
+        "Tomato" to "🍅 Tomato",
+        "Pasta" to "🍝 Pasta",
+        "Rice" to "🍚 Rice",
+        "Eggs" to "🥚 Eggs",
+        "Cheese" to "🧀 Cheese",
+        "Spinach" to "🥬 Spinach",
+        "Garlic" to "🧄 Garlic",
+        "Onion" to "🧅 Onion",
+        "Milk" to "🥛 Milk",
+        "Flour" to "🌾 Flour",
+        "Butter" to "🧈 Butter"
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        // Form Input
+        // Dynamic AI Generation Loading State
+        if (isGenerating) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Chef AI is composing a masterpiece...",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Choosing ratios, matching spices, and writing precise steps based on your pantry...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        // Section header
+        Text(
+            text = "My Ingredients Pantry",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = "Choose materials from standard chips or add custom ones to see matching culinary recipes.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Quick Selector Row / Grid (chips)
+        Text(
+            text = "Quick Pantry Add",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+
+        // Render popular ingredients beautifully as selectable chips!
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            popularIngredients.forEach { ingredient ->
+                val emojiText = ingredientEmojis[ingredient] ?: ingredient
+                val isSelected = itemsList.any { it.name.equals(ingredient, ignoreCase = true) }
+
+                FilterChip(
+                    selected = isSelected,
+                    onClick = {
+                        val matchingItem = itemsList.find { it.name.equals(ingredient, ignoreCase = true) }
+                        if (matchingItem != null) {
+                            viewModel.deleteShoppingItem(matchingItem)
+                        } else {
+                            viewModel.addCustomShoppingItem(ingredient)
+                        }
+                    },
+                    label = { Text(emojiText, style = MaterialTheme.typography.bodyMedium) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Text input to add custom ingredient
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
@@ -883,9 +1004,9 @@ fun ShoppingPanel(viewModel: CookingViewModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = inputItemName,
-                    onValueChange = { inputItemName = it },
-                    placeholder = { Text("Add custom grocery item...") },
+                    value = inputIngredient,
+                    onValueChange = { inputIngredient = it },
+                    placeholder = { Text("Add custom ingredient...") },
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -893,16 +1014,16 @@ fun ShoppingPanel(viewModel: CookingViewModel) {
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .testTag("shopping_input"),
+                        .testTag("ingredient_input"),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(onDone = {
-                        if (inputItemName.isNotBlank()) {
-                            viewModel.addCustomShoppingItem(inputItemName)
-                            inputItemName = ""
+                        if (inputIngredient.isNotBlank()) {
+                            viewModel.addCustomShoppingItem(inputIngredient.trim())
+                            inputIngredient = ""
                         }
                         focusManager.clearFocus()
                     })
@@ -910,9 +1031,9 @@ fun ShoppingPanel(viewModel: CookingViewModel) {
 
                 IconButton(
                     onClick = {
-                        if (inputItemName.isNotBlank()) {
-                            viewModel.addCustomShoppingItem(inputItemName)
-                            inputItemName = ""
+                        if (inputIngredient.isNotBlank()) {
+                            viewModel.addCustomShoppingItem(inputIngredient.trim())
+                            inputIngredient = ""
                         }
                         focusManager.clearFocus()
                     },
@@ -921,11 +1042,11 @@ fun ShoppingPanel(viewModel: CookingViewModel) {
                         .shadow(2.dp, CircleShape)
                         .background(MaterialTheme.colorScheme.primary, CircleShape)
                         .size(44.dp)
-                        .testTag("shopping_add_btn")
+                        .testTag("ingredient_add_btn")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Add custom item",
+                        contentDescription = "Add ingredient",
                         tint = Color.White
                     )
                 }
@@ -934,147 +1055,248 @@ fun ShoppingPanel(viewModel: CookingViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Actions bar
-        val completedCount = itemsList.count { it.isBought }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        // Display current selected pantry ingredients as a beautiful row of deletable chips
+        if (itemsList.isNotEmpty()) {
             Text(
-                text = "Shopping List (${itemsList.size})",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 4.dp)
+                text = "My Pantry (${itemsList.size})",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
             )
 
-            if (completedCount > 0) {
-                TextButton(
-                    onClick = { viewModel.clearCompletedShopping() },
-                    modifier = Modifier.testTag("clear_bought_btn")
-                ) {
-                    Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Clear Bought ($completedCount)")
-                }
-            }
-        }
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (itemsList.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ShoppingBag,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                        modifier = Modifier.size(72.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Your Companion Pantry is Empty",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Add elements from recipe details or type custom items above.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 24.dp)
+                itemsList.forEach { item ->
+                    InputChip(
+                        selected = true,
+                        onClick = { viewModel.deleteShoppingItem(item) },
+                        label = { Text(item.name) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Cancel,
+                                contentDescription = "Delete",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     )
                 }
             }
         } else {
-            LazyColumn(
+            // Empty State
+            Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .testTag("shopping_list"),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                items(itemsList, key = { it.id }) { item ->
-                    ShoppingCardRow(
-                        item = item,
-                        onCheckedChange = { viewModel.toggleShoppingItemBought(item) },
-                        onDeleteClick = { viewModel.deleteShoppingItem(item) }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.Kitchen,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Your Pantry is Empty",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Text(
+                        text = "Tap some quick ingredients above to formulate recipes!",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
             }
         }
-    }
-}
 
-@Composable
-fun ShoppingCardRow(
-    item: ShoppingItem,
-    onCheckedChange: () -> Unit,
-    onDeleteClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("shopping_item_${item.id}"),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (item.isBought) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (item.isBought) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent
-        )
-    ) {
-        Row(
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // --- SECTION: AI GEN KEY & INTERACTION ---
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(bottom = 24.dp)
         ) {
-            Checkbox(
-                checked = item.isBought,
-                onCheckedChange = { onCheckedChange() },
-                modifier = Modifier.testTag("shopping_chk_${item.id}"),
-                colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "AI",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Michelin AI Kitchen Studio",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Generate a completely custom culinary guide using exactly the ingredients present in your pantry. Our chef AI writes difficulty, prep times, and step-by-step methods tailored to you.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        val pantryIngs = itemsList.map { it.name }
+                        viewModel.generateRecipeFromPantry(pantryIngs) { recipe ->
+                            onRecipeClick(recipe)
+                        }
+                    },
+                    enabled = itemsList.isNotEmpty() && !isGenerating,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("ai_generate_recipe_btn")
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Generate Custom Recipe")
+                }
+
+                generationError?.let { err ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = err,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // --- SECTION: RECIPES MATCHES ---
+        val pantryNames = itemsList.map { it.name.lowercase().trim() }
+        val matchedRecipes = recipesList.map { recipe ->
+            val recipeIngText = recipe.ingredientsString.lowercase()
+            val matches = pantryNames.filter { ingredient -> recipeIngText.contains(ingredient) }
+            recipe to matches
+        }.filter { it.second.isNotEmpty() }
+        .sortedByDescending { it.second.size }
+
+        if (matchedRecipes.isNotEmpty()) {
+            Text(
+                text = "Matched Recipes (${matchedRecipes.size})",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
+            matchedRecipes.forEach { (recipe, matches) ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp)
+                        .clickable { onRecipeClick(recipe) },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AsyncImage(
+                            model = recipe.imageUrl,
+                            contentDescription = recipe.title,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop
+                        )
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        textDecoration = if (item.isBought) TextDecoration.LineThrough else TextDecoration.None,
-                        fontWeight = if (item.isBought) FontWeight.Normal else FontWeight.Bold
-                    ),
-                    color = if (item.isBought) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = item.category.uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
-                )
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = recipe.title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "By ${recipe.chefName} • ${recipe.prepTime} • ${recipe.difficulty}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            // Display the match badge list
+                            SuggestionChip(
+                                onClick = {},
+                                label = {
+                                    Text(
+                                        text = "Uses: ${matches.joinToString(", ")}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "Details",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
             }
-
-            IconButton(
-                onClick = onDeleteClick,
-                modifier = Modifier.testTag("shopping_del_${item.id}")
+        } else if (itemsList.isNotEmpty()) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                     imageVector = Icons.Default.Delete,
-                     contentDescription = "Delete item",
-                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
-                     modifier = Modifier.size(20.dp)
-                )
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.SentimentDissatisfied, null, tint = MaterialTheme.colorScheme.outline)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "No direct database recipes match your selected items.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Use the 'Generate Custom Recipe' button above to let AI write a brand new recipe using these ingredients!",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
     }

@@ -14,6 +14,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import org.json.JSONObject
+import org.json.JSONArray
+import com.example.BuildConfig
 
 class CookingViewModel(private val repository: CookingRepository) : ViewModel() {
 
@@ -343,6 +352,173 @@ class CookingViewModel(private val repository: CookingRepository) : ViewModel() 
         _timerRecipeId.value = null
         _timerRemaining.value = null
         _timerIsRunning.value = false
+    }
+
+    // --- Gemini AI Recipe Generation ---
+    private val _isGeneratingRecipe = MutableStateFlow(false)
+    val isGeneratingRecipe: StateFlow<Boolean> = _isGeneratingRecipe.asStateFlow()
+
+    private val _recipeGenerationError = MutableStateFlow<String?>(null)
+    val recipeGenerationError: StateFlow<String?> = _recipeGenerationError.asStateFlow()
+
+    fun generateRecipeFromPantry(ingredients: List<String>, onCompletion: (Recipe) -> Unit) {
+        if (ingredients.isEmpty()) return
+        _isGeneratingRecipe.value = true
+        _recipeGenerationError.value = null
+
+        viewModelScope.launch {
+            try {
+                val apiKey = BuildConfig.GEMINI_API_KEY
+                if (apiKey == "MY_GEMINI_API_KEY" || apiKey.isBlank()) {
+                    _recipeGenerationError.value = "Gemini API key is not configured. Please add your key in the Secrets panel."
+                    _isGeneratingRecipe.value = false
+                    return@launch
+                }
+
+                val ingredientListText = ingredients.joinToString(", ")
+                val prompt = """
+                    You are an elite, Michelin-star chef assistant. Write a unique, highly detailed, and mouth-watering recipe using some or all of these ingredients that the user has at home: $ingredientListText.
+                    
+                    You must output your complete response as a single, valid JSON object with EXACTLY this structure, with no markdown codeblock wraps (like ```json or indeed any backticks or headers), with zero commentary or extra outer texts. It must be directly parseable.
+                    
+                    JSON Structure:
+                    {
+                      "title": "A highly creative and appetite-inspiring recipe title",
+                      "prepTime": "25 mins",
+                      "difficulty": "Easy", // choose from "Easy", "Medium", "Hard"
+                      "category": "Dinner", // choose from "Breakfast", "Lunch", "Dinner", "Desserts", "Healthy"
+                      "ingredients": [
+                        "Ingredient 1 with exact quantity",
+                        "Ingredient 2 with exact quantity"
+                      ],
+                      "instructions": [
+                        "Instruction step 1",
+                        "Instruction step 2"
+                      ]
+                    }
+                """.trimIndent()
+
+                // Call REST API
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+
+                val jsonPayload = JSONObject().apply {
+                    val contentsArr = JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", prompt)
+                                })
+                            })
+                        })
+                    }
+                    put("contents", contentsArr)
+                    put("generationConfig", JSONObject().apply {
+                        put("responseMimeType", "application/json")
+                    })
+                }
+
+                val requestBody = jsonPayload.toString().toRequestBody("application/json".toMediaTypeOrNull())
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                val apiResponse = withContext(Dispatchers.IO) { client.newCall(request).execute() }
+                if (!apiResponse.isSuccessful) {
+                    _recipeGenerationError.value = "API call failed with code: ${apiResponse.code}. ${apiResponse.message}"
+                    _isGeneratingRecipe.value = false
+                    return@launch
+                }
+
+                val responseBody = apiResponse.body?.string() ?: ""
+                if (responseBody.isBlank()) {
+                    _recipeGenerationError.value = "Received empty response from Gemini."
+                    _isGeneratingRecipe.value = false
+                    return@launch
+                }
+
+                // Parse response
+                val jsonObject = JSONObject(responseBody)
+                val candidates = jsonObject.getJSONArray("candidates")
+                if (candidates.length() == 0) {
+                    _recipeGenerationError.value = "No recipe suggestions found."
+                    _isGeneratingRecipe.value = false
+                    return@launch
+                }
+
+                var partText = candidates.getJSONObject(0)
+                    .getJSONObject("content")
+                    .getJSONArray("parts")
+                    .getJSONObject(0)
+                    .getString("text")
+
+                // Robust clean of backticks if returned in case mimeType config wasn't fully set
+                partText = partText.trim()
+                if (partText.startsWith("```")) {
+                    val lines = partText.lines()
+                    val cleanLines = lines.filter { !it.trim().startsWith("```") }
+                    partText = cleanLines.joinToString("\n")
+                }
+
+                // Parse the inner JSON generated by the model
+                val recipeJson = JSONObject(partText.trim())
+                val title = recipeJson.getString("title")
+                val prepTime = recipeJson.getString("prepTime")
+                val difficulty = recipeJson.getString("difficulty")
+                val category = recipeJson.getString("category")
+                
+                val ingJsonArr = recipeJson.getJSONArray("ingredients")
+                val ingList = mutableListOf<String>()
+                for (i in 0 until ingJsonArr.length()) {
+                    ingList.add(ingJsonArr.getString(i))
+                }
+                
+                val instJsonArr = recipeJson.getJSONArray("instructions")
+                val instList = mutableListOf<String>()
+                for (i in 0 until instJsonArr.length()) {
+                    instList.add(instJsonArr.getString(i))
+                }
+
+                val generatedRecipe = Recipe(
+                    title = title,
+                    chefName = "Gemini Kitchen AI",
+                    imageUrl = when (category.lowercase()) {
+                        "breakfast" -> "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=600&auto=format&fit=crop"
+                        "healthy" -> "https://images.unsplash.com/photo-1541532713592-79a0317b6b77?w=600&auto=format&fit=crop"
+                        "desserts" -> "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop"
+                        "dinner" -> "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=600&auto=format&fit=crop"
+                        else -> "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&auto=format&fit=crop"
+                    },
+                    prepTime = prepTime,
+                    difficulty = difficulty,
+                    category = category,
+                    ingredientsString = ingList.joinToString("||"),
+                    instructionsString = instList.joinToString("||")
+                )
+
+                // Save to local database so it displays in Discover immediately!
+                repository.shareUserRecipe(generatedRecipe)
+
+                // Retrieve the latest list of recipes and find the generated one to get its ID!
+                delay(300) // Small delay to guarantee database insertion commit
+                val allRecs = repository.allRecipesFlow.first()
+                val savedRecipe = allRecs.find { it.title == title && it.chefName == "Gemini Kitchen AI" } ?: generatedRecipe
+
+                _uiMessage.emit("Successfully generated chef-special: '$title'!")
+                onCompletion(savedRecipe)
+
+            } catch (e: Exception) {
+                _recipeGenerationError.value = "Failed to parse recipe: ${e.localizedMessage}"
+            } finally {
+                _isGeneratingRecipe.value = false
+            }
+        }
     }
 }
 
